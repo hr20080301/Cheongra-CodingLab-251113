@@ -102,16 +102,16 @@
         if (model && webcam && labelContainer) {
             const prediction = await model.predict(webcam.canvas);
             if(prediction[0].probability.toFixed(2) >= 0.5) {
-        labelContainer.childNodes[0].innerHTML = "10대 예상";
+        labelContainer.childNodes[0].innerHTML = "10대로 예상됩니다. 자신이 좋아하는 것과 잘하는 것을 찾아보세요";
   
         } else if(prediction[1].probability.toFixed(2) >= 0.5) {
-            labelContainer.childNodes[0].innerHTML = "10대 아래 에상";
+            labelContainer.childNodes[0].innerHTML = "10살 미만이신가요? 질문하고 탐험하는 것을 두려워하지 마세요. 실수해도 괜찮아요";
         } else if(prediction[2].probability.toFixed(2) >= 0.5) {
-            labelContainer.childNodes[0].innerHTML = "20~ 30대";
+            labelContainer.childNodes[0].innerHTML = "20 ~ 30대로 추정됩니다. 네트워크를 넓히되, 진정한 친구와 멘토를 찾는 것도 중요합니다.";
         } else if(prediction[3].probability.toFixed(2) >= 0.5) {
-            labelContainer.childNodes[0].innerHTML = "40~ 50대";
+            labelContainer.childNodes[0].innerHTML = "40~ 50대시라면 제가 드릴 말씀은 크게 없을것 같아요. 인생에서 중요한 가치를 돌아보고, 후회 없는 선택을 하세요.";
         } else if(prediction[4].probability.toFixed(2) >= 0.5) {
-            labelContainer.childNodes[0].innerHTML = "60 위";
+            labelContainer.childNodes[0].innerHTML = "60보다 나이가 많으시군요. 새로운 것을 배우는 즐거움을 계속 추구하세요. 나이는 숫자에 불과합니다.";
         } else {
             labelContainer.childNodes[0].innerHTML = "알 수 없음";
         }
