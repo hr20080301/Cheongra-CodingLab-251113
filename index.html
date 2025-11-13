@@ -102,7 +102,7 @@
         if (model && webcam && labelContainer) {
             const prediction = await model.predict(webcam.canvas);
             if(prediction[0].probability.toFixed(2) == 1.00) {
-                labelContainer.childNodes[0].innerHTML = "10대가 예상"
+                labelContainer.childNodes[0].innerHTML = "10대가 예상";
             }
                 
             } else if(prediction[1].probability.toFixed(2) == 1.00) {
