@@ -7,21 +7,40 @@
     <title>H R & Y C 's Project </title>
     <link rel="icon" href="icon1.jpg"/> 
     <link rel="apple-touch-icon" href="icon1.jpg"/> 
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div>얼굴 나이에 맞는 조언 프로그램</div>
+    <div class="app">
+        <div class="card">
+            <div class="card-title">얼굴 나이에 맞는 조언 프로그램</div>
 
-    <button type="button" onclick="init()">나이 추정 시작</button>
-    <button type="button" id="restart-button" onclick="restartMeasure()" style="display:none;">다시 하기</button>
-    <div id="webcam-container"></div>
+            <div class="content-row">
+                <div class="cam-panel">
+                    <div id="webcam-container"></div>
+                </div>
 
-    <!-- 진행 상황 표시용 프로그래스 바 -->
-    <div id="progress-wrapper" style="width: 220px; height: 16px; border: 1px solid #999; border-radius: 8px; margin-top: 10px; display:none;">
-        <div id="progress-bar" style="height: 100%; width: 0%; background-color: #4caf50; border-radius: 8px;"></div>
+                <div class="info-panel">
+                    <div id="label-container">
+                        <div id="result-title"></div>
+                        <div id="result-age"></div>
+                        <div id="result-advice"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 아래쪽 중앙: 프로그래스 바 + 버튼 -->
+            <div class="bottom-panel">
+                <div id="progress-wrapper">
+                    <div id="progress-bar"></div>
+                </div>
+                <div id="progress-text"></div>
+
+                <div class="button-row">
+                    <button type="button" id="measure-button" onclick="onMeasureButtonClick()">나이 추정 시작</button>
+                </div>
+            </div>
+        </div>
     </div>
-    <div id="progress-text" style="margin-top: 4px; font-size: 12px; display:none;"></div>
-
-    <div id="label-container"></div>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
     <script type="text/javascript">
@@ -31,10 +50,20 @@
     // the link to your model provided by Teachable Machine export panel
     const URL = "./";
 
+    // 사용할 기본 테마 선택: "theme-light" | "theme-dark" | "theme-pastel" 중 하나
+    const DEFAULT_THEME = "theme-light";
+
+    // 페이지 로드가 완료되면 기본 테마 적용 + 웹캠/모델 초기화
+    document.addEventListener("DOMContentLoaded", () => {
+        document.body.classList.add(DEFAULT_THEME);
+        init(); // 페이지에 들어오자마자 웹캠을 켜고 모델을 준비
+    });
+
     let model, webcam, labelContainer, maxPredictions;
+    let resultTitleEl, resultAgeEl, resultAdviceEl;
 
     // 측정 시간(밀리초) - 필요하면 이 값만 바꾸면 됨
-    const MEASURE_DURATION_MS = 5000;  // 8초
+    const MEASURE_DURATION_MS = 5000;  // 5초
 
     // 평균을 내기 위한 상태 변수
     let isMeasuring = false;          // 지금 측정 중인지 여부
@@ -81,15 +110,15 @@
     ]
 ];
 
-    // Load the image model and setup the webcam
+    // Load the image model and setup the webcam (페이지 로드시 한 번 실행)
     async function init() {
-        const startButton = document.querySelector('button[onclick="init()"]');
+        const measureButton = document.getElementById("measure-button");
         
         try {
-            // 버튼 비활성화 및 로딩 상태 표시
-            if (startButton) {
-                startButton.disabled = true;
-                startButton.textContent = "로딩 중...";
+            // 측정 버튼 비활성화 및 로딩 상태 표시
+            if (measureButton) {
+                measureButton.disabled = true;
+                measureButton.textContent = "웹캠 준비 중...";
             }
 
             // 라이브러리 로드 확인
@@ -126,28 +155,44 @@
 
             // 라벨 영역 준비
             labelContainer = document.getElementById("label-container");
-            for (let i = 0; i < maxPredictions; i++) { // and class labels
-                labelContainer.appendChild(document.createElement("div"));
-            }
-
-            // 측정 시작 설정
-            startMeasure(false);
+            resultTitleEl = document.getElementById("result-title");
+            resultAgeEl = document.getElementById("result-age");
+            resultAdviceEl = document.getElementById("result-advice");
             
-            // 성공 메시지
-            if (startButton) {
-                startButton.textContent = "시작됨";
-                startButton.style.display = "none"; // 첫 시작 버튼은 한 번만 사용
+            // 측정 버튼을 다시 활성화
+            if (measureButton) {
+                measureButton.disabled = false;
+                measureButton.textContent = "나이 추정 시작";
             }
         } catch (err) {
             console.error("초기화 오류:", err);
             alert("초기화 오류: " + (err && err.message ? err.message : err));
             
             // 버튼 복구
-            if (startButton) {
-                startButton.disabled = false;
-                startButton.textContent = "Start";
+            if (measureButton) {
+                measureButton.disabled = false;
+                measureButton.textContent = "나이 추정 시작";
             }
         }
+    }
+
+    // "나이 추정 시작" / "다시 추정" 버튼 클릭 핸들러
+    function onMeasureButtonClick() {
+        // 이미 측정 중이면 무시
+        if (isMeasuring) return;
+
+        // 모델/웹캠이 아직 준비되지 않은 경우 방어
+        if (!(model && webcam && labelContainer)) {
+            alert("아직 준비 중입니다. 잠시 후 다시 시도해주세요.");
+            return;
+        }
+
+        const measureButton = document.getElementById("measure-button");
+        if (measureButton) {
+            playButtonBurst(measureButton);
+        }
+
+        startMeasure();
     }
 
     async function loop() {
@@ -205,11 +250,17 @@
                 ageLabel = "예상 연령대: " + ageGroupLabels[bestIndex];
             }
 
-            if (labelContainer && labelContainer.childNodes[0]) {
-                labelContainer.childNodes[0].innerHTML =
-                    "최종 판단 결과<br>" +
-                    (ageLabel ? ageLabel + "<br>" : "") +
-                    adviceText;
+            if (resultTitleEl) {
+                resultTitleEl.style.display = "block";
+                resultTitleEl.textContent = "최종 판단 결과";
+            }
+            if (resultAgeEl) {
+                resultAgeEl.style.display = ageLabel ? "inline-block" : "none";
+                resultAgeEl.textContent = ageLabel;
+            }
+            if (resultAdviceEl) {
+                resultAdviceEl.style.display = "block";
+                resultAdviceEl.textContent = adviceText;
             }
 
             // 측정 종료 UI 및 다시 하기 버튼 보이기
@@ -218,16 +269,11 @@
     }
 
     // 측정 초기화 및 시작 공통 로직
-    function startMeasure(isRestart) {
+    function startMeasure() {
         classScoreSums = new Array(maxPredictions).fill(0);
         isMeasuring = true;
         measurementDone = false;
         measureStartTime = Date.now();
-
-        const restartButton = document.getElementById("restart-button");
-        if (restartButton) {
-            restartButton.style.display = "none";
-        }
 
         const progressWrapper = document.getElementById("progress-wrapper");
         const progressText = document.getElementById("progress-text");
@@ -237,12 +283,28 @@
             progressText.style.display = "block";
             progressBar.style.width = "0%";
             const totalSeconds = MEASURE_DURATION_MS / 1000;
-            progressText.textContent = totalSeconds + "초 동안 화면을 바라봐 주세요. 평균 나이대를 " + (isRestart ? "다시 " : "") + "계산 중입니다...";
+            progressText.textContent = totalSeconds + "초 동안 화면을 바라봐 주세요. 평균 나이대를 계산 중입니다...";
         }
 
-        if (labelContainer && labelContainer.childNodes[0]) {
-            const totalSeconds = MEASURE_DURATION_MS / 1000;
-            labelContainer.childNodes[0].innerHTML = totalSeconds + "초 동안 화면을 바라봐 주세요. 평균 나이대를 " + (isRestart ? "다시 " : "") + "계산 중입니다...";
+        // 결과 박스 초기화 및 숨김
+        if (resultTitleEl) {
+            resultTitleEl.style.display = "none";
+            resultTitleEl.textContent = "";
+        }
+        if (resultAgeEl) {
+            resultAgeEl.style.display = "none";
+            resultAgeEl.textContent = "";
+        }
+        if (resultAdviceEl) {
+            resultAdviceEl.style.display = "none";
+            resultAdviceEl.textContent = "";
+        }
+
+        // 측정 버튼 비활성화 및 상태 표시
+        const measureButton = document.getElementById("measure-button");
+        if (measureButton) {
+            measureButton.disabled = true;
+            measureButton.textContent = "측정 중...";
         }
     }
 
@@ -256,12 +318,13 @@
             progressText.textContent = "측정이 완료되었습니다.";
         }
 
-        // 다시 하기 버튼 보이기
-            const restartButton = document.getElementById("restart-button");
-            if (restartButton) {
-                restartButton.style.display = "inline-block";
-            }
+        // 측정 버튼을 다시 활성화하고 "다시 추정"으로 변경
+        const measureButton = document.getElementById("measure-button");
+        if (measureButton) {
+            measureButton.disabled = false;
+            measureButton.textContent = "다시 추정";
         }
+    }
 
     // 경과 시간에 따라 프로그래스 바/텍스트 업데이트
     function updateProgressUI(elapsedMs) {
@@ -289,10 +352,13 @@
         }
     }
 
-    // 다시 하기 버튼을 눌렀을 때 측정만 초기화
-    function restartMeasure() {
-        if (!(model && webcam && labelContainer)) return;
-        startMeasure(true);
+    // 버튼 주변에서만 보이는 "팡" 이펙트 (작은 링이 번지는 효과)
+    function playButtonBurst(buttonEl) {
+        if (!buttonEl) return;
+        buttonEl.classList.remove("burst-active");
+        // reflow를 강제로 발생시켜 애니메이션을 다시 트리거
+        void buttonEl.offsetWidth;
+        buttonEl.classList.add("burst-active");
     }
     </script>
 
