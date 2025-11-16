@@ -9,10 +9,18 @@
     <link rel="apple-touch-icon" href="icon1.jpg"/> 
 </head>
 <body>
-    <div>나이에 맞는 조언 프로그램</div>
+    <div>얼굴 나이에 맞는 조언 프로그램</div>
 
-    <button type="button" onclick="init()">조언을 해드립니다</button>
+    <button type="button" onclick="init()">나이 추정 시작</button>
+    <button type="button" id="restart-button" onclick="restartMeasure()" style="display:none;">다시 하기</button>
     <div id="webcam-container"></div>
+
+    <!-- 진행 상황 표시용 프로그래스 바 -->
+    <div id="progress-wrapper" style="width: 220px; height: 16px; border: 1px solid #999; border-radius: 8px; margin-top: 10px; display:none;">
+        <div id="progress-bar" style="height: 100%; width: 0%; background-color: #4caf50; border-radius: 8px;"></div>
+    </div>
+    <div id="progress-text" style="margin-top: 4px; font-size: 12px; display:none;"></div>
+
     <div id="label-container"></div>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
@@ -24,6 +32,54 @@
     const URL = "./";
 
     let model, webcam, labelContainer, maxPredictions;
+
+    // 측정 시간(밀리초) - 필요하면 이 값만 바꾸면 됨
+    const MEASURE_DURATION_MS = 5000;  // 8초
+
+    // 평균을 내기 위한 상태 변수
+    let isMeasuring = false;          // 지금 측정 중인지 여부
+    let measurementDone = false;      // 최종 결과가 이미 나온 상태인지 여부
+    let measureStartTime = 0;         // 측정 시작 시각
+    let classScoreSums = [];          // 각 나이대에 대한 누적 점수
+
+    // 연령대 이름을 따로 관리 (접두사 "예상 연령대:"는 코드에서 한 번만 사용)
+    const ageGroupLabels = [
+        "10대",
+        "10살 미만",
+        "20~30대",
+        "40~50대",
+        "60대 이상"
+    ];
+
+    // 연령대별 여러 개의 조언 문구 (나이 언급 없이 조언만 작성)
+    // 인덱스 0~4는 Teachable Machine 모델의 클래스 순서와 맞추어야 함
+    const adviceMessages = [
+    [
+        "지금의 불안함이나 흔들림도 성장 과정의 일부니까 너무 조급해하지 마세요. 천천히 자기 속도를 찾아가면 돼요.",
+        "하고 싶은 일이 마음에 떠오르면 이유를 따지기보다 먼저 한 걸음만 내딛어 보세요. 그 한 걸음이 인생의 방향을 바꿀 수 있어요.",
+        "완벽해야 한다는 부담은 내려놓고, 오늘의 작은 실천 하나에 집중해 보세요. 작은 변화들이 모여 나중에 큰 힘이 됩니다."
+    ],
+    [
+        "새로운 것을 보면 먼저 만져보고, 해보고, 느껴보세요. 세상을 배워가는 가장 좋은 방법이에요.",
+        "틀려도 괜찮고, 천천히 해도 괜찮아요. 중요한 건 즐겁게 해보려는 마음이에요.",
+        "하고 싶은 게 생기면 말로 표현해 보세요. 그 한마디가 더 많은 재미를 불러올 수 있어요."
+    ],
+    [
+        "지금 겪는 고민이나 선택의 압박은 자연스러운 과정이에요. 너무 잘하려고 하기보다, 지금의 나에게 솔직해지는 게 더 중요합니다.",
+        "다른 사람의 속도가 부러울 수 있지만, 결국 오래 가는 건 자신만의 페이스를 지키는 사람입니다.",
+        "작은 목표라도 꾸준히 쌓아가면 어느 순간 자신이 생각보다 멀리 와 있는 걸 깨닫게 될 거예요."
+    ],
+    [
+        "앞만 보고 달려오느라 놓쳤던 감정이나 생각이 있다면, 지금은 그것을 차분히 돌아볼 좋은 때입니다.",
+        "지금까지 쌓아온 경험은 누구도 흉내낼 수 없는 큰 자산이에요. 그 가치를 스스로 믿어주세요.",
+        "누군가를 위해 살아온 시간만큼, 이제는 나 자신을 돌보는 시간을 조금 더 챙겨도 충분히 괜찮습니다."
+    ],
+    [
+        "지나온 길을 천천히 떠올려 보면, 삶의 의미 있는 순간들이 더 선명하게 다가올 거예요.",
+        "새로운 것을 배우기엔 늦은 때는 없습니다. 작은 변화도 하루를 특별하게 만들어줍니다.",
+        "몸과 마음을 편안하게 돌보면서, 지금의 여유가 주는 소소한 행복을 더 자주 느껴보세요."
+    ]
+];
 
     // Load the image model and setup the webcam
     async function init() {
@@ -45,36 +101,42 @@
             const modelURL = URL + "model.json";
             const metadataURL = URL + "metadata.json";
 
-            console.log("모델 로딩 시작:", modelURL);
-            
-            // load the model and metadata
-            model = await tmImageLib.load(modelURL, metadataURL);
-            maxPredictions = model.getTotalClasses();
-            
-            console.log("모델 로드 완료. 클래스 수:", maxPredictions);
+            console.log("모델 로딩 및 웹캠 준비 시작");
 
-            // Convenience function to setup a webcam
+            // 모델 로드와 웹캠 준비를 병렬로 진행해서 체감 속도 향상
+            const tmLoadPromise = tmImageLib.load(modelURL, metadataURL);
+
             const flip = true; // whether to flip the webcam
             webcam = new tmImageLib.Webcam(200, 200, flip); // width, height, flip
-            
             console.log("웹캠 설정 중...");
-            await webcam.setup({ facingMode: "user" }); // request access to the webcam
-            await webcam.play();
-            
-            console.log("웹캠 시작됨");
+            const webcamSetupPromise = (async () => {
+                await webcam.setup({ facingMode: "user" }); // request access to the webcam
+                await webcam.play();
+                document.getElementById("webcam-container").appendChild(webcam.canvas);
+            })();
+
+            // 둘 다 끝날 때까지 기다림
+            const [loadedModel] = await Promise.all([tmLoadPromise, webcamSetupPromise]);
+            model = loadedModel;
+            maxPredictions = model.getTotalClasses();
+
+            console.log("모델 로드 및 웹캠 시작 완료. 클래스 수:", maxPredictions);
+
             window.requestAnimationFrame(loop);
 
-            // append elements to the DOM
-            document.getElementById("webcam-container").appendChild(webcam.canvas);
+            // 라벨 영역 준비
             labelContainer = document.getElementById("label-container");
             for (let i = 0; i < maxPredictions; i++) { // and class labels
                 labelContainer.appendChild(document.createElement("div"));
             }
+
+            // 측정 시작 설정
+            startMeasure(false);
             
             // 성공 메시지
             if (startButton) {
                 startButton.textContent = "시작됨";
-                startButton.style.display = "none"; // 버튼 숨기기
+                startButton.style.display = "none"; // 첫 시작 버튼은 한 번만 사용
             }
         } catch (err) {
             console.error("초기화 오류:", err);
@@ -99,26 +161,140 @@
     // run the webcam image through the image model
     async function predict() {
         // predict can take in an image, video or canvas html element
-        if (model && webcam && labelContainer) {
+        if (!(model && webcam && labelContainer)) return;
+
+        const now = Date.now();
+        const elapsed = now - measureStartTime;
+
+        // 측정 중이 아닐 때도 프로그래스 바는 100%로 고정
+        updateProgressUI(elapsed);
+
+        // 이미 한 번 최종 결과가 나온 뒤라면 더 이상 누적하지 않음
+        if (measurementDone || !isMeasuring) return;
+
+        // 설정한 측정 시간 동안만 값을 누적
+        if (elapsed <= MEASURE_DURATION_MS) {
             const prediction = await model.predict(webcam.canvas);
-            if(prediction[0].probability.toFixed(2) >= 0.5) {
-        labelContainer.childNodes[0].innerHTML = "10대로 예상됩니다. 자신이 좋아하는 것과 잘하는 것을 찾아보세요";
-  
-        } else if(prediction[1].probability.toFixed(2) >= 0.5) {
-            labelContainer.childNodes[0].innerHTML = "10살 미만이신가요? 질문하고 탐험하는 것을 두려워하지 마세요. 실수해도 괜찮아요";
-        } else if(prediction[2].probability.toFixed(2) >= 0.5) {
-            labelContainer.childNodes[0].innerHTML = "20 ~ 30대로 추정됩니다. 네트워크를 넓히되, 진정한 친구와 멘토를 찾는 것도 중요합니다.";
-        } else if(prediction[3].probability.toFixed(2) >= 0.5) {
-            labelContainer.childNodes[0].innerHTML = "40~ 50대시라면 제가 드릴 말씀은 크게 없을것 같아요. 인생에서 중요한 가치를 돌아보고, 후회 없는 선택을 하세요.";
-        } else if(prediction[4].probability.toFixed(2) >= 0.5) {
-            labelContainer.childNodes[0].innerHTML = "60보다 나이가 많으시군요. 새로운 것을 배우는 즐거움을 계속 추구하세요. 나이는 숫자에 불과합니다.";
+
+            // 각 나이대의 확률을 누적해서 "평균"을 구할 수 있도록 함
+            for (let i = 0; i < prediction.length; i++) {
+                classScoreSums[i] += prediction[i].probability;
+            }
         } else {
-            labelContainer.childNodes[0].innerHTML = "알 수 없음";
+            // 설정한 시간이 지나면 가장 많이 나온(누적 점수가 높은) 나이대를 최종 결과로 선택
+            measurementDone = true;
+            isMeasuring = false;
+
+            let bestIndex = 0;
+            for (let i = 1; i < classScoreSums.length; i++) {
+                if (classScoreSums[i] > classScoreSums[bestIndex]) {
+                    bestIndex = i;
+                }
+            }
+
+            // 최종 나이대에 따라 조언 문구를 랜덤으로 선택
+            let ageLabel = "";
+            let adviceText = "알 수 없음";
+
+            const ageAdvices = adviceMessages[bestIndex];
+            if (ageAdvices && ageAdvices.length > 0) {
+                const randomIdx = Math.floor(Math.random() * ageAdvices.length);
+                adviceText = ageAdvices[randomIdx];
+            }
+            if (ageGroupLabels[bestIndex]) {
+                ageLabel = "예상 연령대: " + ageGroupLabels[bestIndex];
+            }
+
+            if (labelContainer && labelContainer.childNodes[0]) {
+                labelContainer.childNodes[0].innerHTML =
+                    "최종 판단 결과<br>" +
+                    (ageLabel ? ageLabel + "<br>" : "") +
+                    adviceText;
+            }
+
+            // 측정 종료 UI 및 다시 하기 버튼 보이기
+            finishMeasureUI();
         }
-        }
-    
     }
-</script>
+
+    // 측정 초기화 및 시작 공통 로직
+    function startMeasure(isRestart) {
+        classScoreSums = new Array(maxPredictions).fill(0);
+        isMeasuring = true;
+        measurementDone = false;
+        measureStartTime = Date.now();
+
+        const restartButton = document.getElementById("restart-button");
+        if (restartButton) {
+            restartButton.style.display = "none";
+        }
+
+        const progressWrapper = document.getElementById("progress-wrapper");
+        const progressText = document.getElementById("progress-text");
+        const progressBar = document.getElementById("progress-bar");
+        if (progressWrapper && progressText && progressBar) {
+            progressWrapper.style.display = "block";
+            progressText.style.display = "block";
+            progressBar.style.width = "0%";
+            const totalSeconds = MEASURE_DURATION_MS / 1000;
+            progressText.textContent = totalSeconds + "초 동안 화면을 바라봐 주세요. 평균 나이대를 " + (isRestart ? "다시 " : "") + "계산 중입니다...";
+        }
+
+        if (labelContainer && labelContainer.childNodes[0]) {
+            const totalSeconds = MEASURE_DURATION_MS / 1000;
+            labelContainer.childNodes[0].innerHTML = totalSeconds + "초 동안 화면을 바라봐 주세요. 평균 나이대를 " + (isRestart ? "다시 " : "") + "계산 중입니다...";
+        }
+    }
+
+    // 측정 종료 시 UI 업데이트
+    function finishMeasureUI() {
+        const progressWrapper = document.getElementById("progress-wrapper");
+        const progressText = document.getElementById("progress-text");
+        const progressBar = document.getElementById("progress-bar");
+        if (progressWrapper && progressText && progressBar) {
+            progressBar.style.width = "100%";
+            progressText.textContent = "측정이 완료되었습니다.";
+        }
+
+        // 다시 하기 버튼 보이기
+            const restartButton = document.getElementById("restart-button");
+            if (restartButton) {
+                restartButton.style.display = "inline-block";
+            }
+        }
+
+    // 경과 시간에 따라 프로그래스 바/텍스트 업데이트
+    function updateProgressUI(elapsedMs) {
+        const progressWrapper = document.getElementById("progress-wrapper");
+        const progressText = document.getElementById("progress-text");
+        const progressBar = document.getElementById("progress-bar");
+        if (!(progressWrapper && progressText && progressBar)) return;
+
+        // 아직 측정 시작 전이면 숨김
+        if (!isMeasuring && !measurementDone) {
+            progressWrapper.style.display = "none";
+            progressText.style.display = "none";
+            return;
+        }
+
+        const ratio = Math.min(elapsedMs / MEASURE_DURATION_MS, 1);
+        const percent = Math.round(ratio * 100);
+        progressBar.style.width = percent + "%";
+
+        const totalSeconds = MEASURE_DURATION_MS / 1000;
+        const remainingSeconds = Math.max(totalSeconds - Math.floor(elapsedMs / 1000), 0);
+
+        if (!measurementDone) {
+            progressText.textContent = "남은 시간: " + remainingSeconds + "초";
+        }
+    }
+
+    // 다시 하기 버튼을 눌렀을 때 측정만 초기화
+    function restartMeasure() {
+        if (!(model && webcam && labelContainer)) return;
+        startMeasure(true);
+    }
+    </script>
 
 </body>
 </html>
