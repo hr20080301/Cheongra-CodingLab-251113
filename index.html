@@ -12,7 +12,7 @@
 <body>
     <div class="app">
         <div class="card">
-            <div class="card-title">얼굴 나이에 맞는 조언 프로그램</div>
+            <div class="card-title">나이에 맞는 조언을 해드립니다!</div>
 
             <div class="content-row">
                 <div class="cam-panel">
@@ -24,6 +24,7 @@
                         <div id="result-title"></div>
                         <div id="result-age"></div>
                         <div id="result-advice"></div>
+                        <div id="result-expire" style="display:none;font-size:12px;color:#777;margin-top:6px;"></div>
                     </div>
                 </div>
             </div>
@@ -36,7 +37,7 @@
                 <div id="progress-text"></div>
 
                 <div class="button-row">
-                    <button type="button" id="measure-button" onclick="onMeasureButtonClick()">나이 추정 시작</button>
+                    <button type="button" id="measure-button" onclick="onMeasureButtonClick()">조언 받기</button>
                 </div>
             </div>
         </div>
@@ -60,10 +61,12 @@
     });
 
     let model, webcam, labelContainer, maxPredictions;
-    let resultTitleEl, resultAgeEl, resultAdviceEl;
+    let resultTitleEl, resultAgeEl, resultAdviceEl, resultExpireEl;
+    let autoResetTimerId = null;
 
     // 측정 시간(밀리초) - 필요하면 이 값만 바꾸면 됨
     const MEASURE_DURATION_MS = 5000;  // 5초
+    const RESULT_AUTO_RESET_MS = 15000; // 결과 유지 시간(15초)
 
     // 평균을 내기 위한 상태 변수
     let isMeasuring = false;          // 지금 측정 중인지 여부
@@ -83,30 +86,65 @@
     // 연령대별 여러 개의 조언 문구 (나이 언급 없이 조언만 작성)
     // 인덱스 0~4는 Teachable Machine 모델의 클래스 순서와 맞추어야 함
     const adviceMessages = [
-    [
-        "지금의 불안함이나 흔들림도 성장 과정의 일부니까 너무 조급해하지 마세요. 천천히 자기 속도를 찾아가면 돼요.",
-        "하고 싶은 일이 마음에 떠오르면 이유를 따지기보다 먼저 한 걸음만 내딛어 보세요. 그 한 걸음이 인생의 방향을 바꿀 수 있어요.",
-        "완벽해야 한다는 부담은 내려놓고, 오늘의 작은 실천 하나에 집중해 보세요. 작은 변화들이 모여 나중에 큰 힘이 됩니다."
+    [ // 10대
+        "지금 느끼는 불안이나 혼란은 잘못된 게 아니라, 성장하고 있다는 신호예요.",
+        "아직 방향이 안 잡힌 것 같아도 괜찮아요. 대부분은 이 시기에 헤매요.",
+        "남들과 비교하면서 스스로를 깎아내리지 않아도 돼요. 각자 속도가 달라요.",
+        "실패를 겁내지 말고 한 번쯤 부딪혀 보세요. 이 시기의 실패는 경험이 됩니다.",
+        "잘하는 게 없어 보여도 걱정 마세요. 찾고 있는 중일 뿐이에요.",
+        "어른들 말이 항상 정답은 아니에요. 듣되, 스스로 생각해 보세요.",
+        "지금의 선택 하나가 인생 전부를 결정하지는 않아요.",
+        "감정이 자주 흔들린다는 건, 그만큼 진지하게 살고 있다는 뜻이에요.",
+        "공부 말고도 나를 설명해 줄 무언가 하나쯤은 꼭 가져보세요.",
+        "지금의 나는 미완성이어도 괜찮아요. 아직 만들어지는 중이에요."
     ],
-    [
-        "새로운 것을 보면 먼저 만져보고, 해보고, 느껴보세요. 세상을 배워가는 가장 좋은 방법이에요.",
-        "틀려도 괜찮고, 천천히 해도 괜찮아요. 중요한 건 즐겁게 해보려는 마음이에요.",
-        "하고 싶은 게 생기면 말로 표현해 보세요. 그 한마디가 더 많은 재미를 불러올 수 있어요."
+    [ // 10살 미만
+        "궁금한 게 생기면 꼭 물어봐도 돼요. 질문하는 건 용기 있는 행동이에요.",
+        "틀려도 괜찮아요. 실수하면서 배우는 거예요.",
+        "처음부터 잘할 필요는 없어요. 천천히 해도 돼요.",
+        "하고 싶은 말이 있으면 말해도 돼요. 네 생각은 중요해요.",
+        "놀면서 배우는 것도 아주 중요한 공부예요.",
+        "다른 친구보다 느려도 괜찮아요. 너만의 속도가 있어요.",
+        "싫은 건 싫다고 말해도 돼요. 그건 나쁜 게 아니에요.",
+        "혼자 해냈을 때의 기분을 기억해 보세요. 그게 자신감이에요.",
+        "넘어져도 다시 일어나면 돼요. 그게 제일 멋진 거예요.",
+        "지금의 너도 충분히 잘하고 있어요."
     ],
-    [
-        "지금 겪는 고민이나 선택의 압박은 자연스러운 과정이에요. 너무 잘하려고 하기보다, 지금의 나에게 솔직해지는 게 더 중요합니다.",
-        "다른 사람의 속도가 부러울 수 있지만, 결국 오래 가는 건 자신만의 페이스를 지키는 사람입니다.",
-        "작은 목표라도 꾸준히 쌓아가면 어느 순간 자신이 생각보다 멀리 와 있는 걸 깨닫게 될 거예요."
+    [ // 20~30대
+        "지금의 불안은 실패가 아니라, 선택 앞에 서 있다는 증거예요.",
+        "남들보다 늦은 것 같아도 사실 대부분 비슷하게 고민하고 있어요.",
+        "완벽한 타이밍은 잘 오지 않아요. 괜찮을 때 시작해도 됩니다.",
+        "하고 있는 선택이 맞는지 고민하는 건 책임감이 있다는 뜻이에요.",
+        "방향이 바뀌어도 괜찮아요. 돌아가는 길도 결국 경험이 됩니다.",
+        "조급해질수록 잠깐 멈춰 숨을 고르는 게 필요해요.",
+        "작은 성취라도 스스로 인정해 주세요. 생각보다 많이 해내고 있어요.",
+        "일과 삶 사이에서 균형을 찾으려는 노력도 중요한 성장입니다.",
+        "남의 인생 계획보다, 나에게 맞는 리듬을 더 믿어보세요.",
+        "지금의 선택들이 모여 결국 당신만의 길이 만들어질 거예요."
     ],
-    [
-        "앞만 보고 달려오느라 놓쳤던 감정이나 생각이 있다면, 지금은 그것을 차분히 돌아볼 좋은 때입니다.",
-        "지금까지 쌓아온 경험은 누구도 흉내낼 수 없는 큰 자산이에요. 그 가치를 스스로 믿어주세요.",
-        "누군가를 위해 살아온 시간만큼, 이제는 나 자신을 돌보는 시간을 조금 더 챙겨도 충분히 괜찮습니다."
+    [ // 40~50대
+        "앞만 보고 달려오느라 놓친 감정이 있다면, 이제는 돌아봐도 괜찮은 때예요.",
+        "지금까지 쌓아온 경험은 생각보다 훨씬 큰 자산이에요.",
+        "모든 걸 혼자 책임지려 하지 않아도 됩니다.",
+        "잠시 쉬어간다고 해서 뒤처지는 건 아니에요.",
+        "지금의 고민은 그만큼 성실히 살아왔다는 증거예요.",
+        "예전보다 달라진 자신을 부정하지 말고 인정해 주세요.",
+        "누군가를 위해 살아온 만큼, 이제는 나 자신도 챙겨도 괜찮아요.",
+        "완벽하지 않아도 충분히 잘해왔어요.",
+        "지금의 선택도 여전히 삶을 바꿀 힘이 있어요.",
+        "당신의 시간은 아직 끝나지 않았습니다."
     ],
-    [
-        "지나온 길을 천천히 떠올려 보면, 삶의 의미 있는 순간들이 더 선명하게 다가올 거예요.",
-        "새로운 것을 배우기엔 늦은 때는 없습니다. 작은 변화도 하루를 특별하게 만들어줍니다.",
-        "몸과 마음을 편안하게 돌보면서, 지금의 여유가 주는 소소한 행복을 더 자주 느껴보세요."
+    [ // 60대 이상
+        "지나온 시간을 돌아보면, 의미 없던 순간은 거의 없었을 거예요.",
+        "새로운 걸 시작하기엔 절대 늦지 않았습니다.",
+        "지금까지 살아온 경험은 그 자체로 큰 지혜입니다.",
+        "예전보다 느려져도 괜찮아요. 속도보다 방향이 중요해요.",
+        "몸과 마음의 신호를 예전보다 더 잘 들어주세요.",
+        "작은 일상 속에서도 충분히 기쁨을 찾을 수 있어요.",
+        "누군가에게 조언이 되어줄 만큼의 삶을 이미 살아오셨어요.",
+        "지금의 여유는 노력 없이 얻어진 게 아닙니다.",
+        "새로운 하루를 맞이할 수 있다는 것만으로도 충분한 가치가 있어요.",
+        "지금의 당신도 여전히 성장하고 있습니다."
     ]
 ];
 
@@ -151,6 +189,17 @@
 
             console.log("모델 로드 및 웹캠 시작 완료. 클래스 수:", maxPredictions);
 
+            // 첫 추론 워밍업으로 초기 클릭 지연 최소화
+            try {
+                await model.predict(webcam.canvas);
+                if (window.tf && typeof window.tf.nextFrame === "function") {
+                    await window.tf.nextFrame();
+                }
+                console.log("워밍업 완료");
+            } catch (warmErr) {
+                console.warn("워밍업 중 경고:", warmErr);
+            }
+
             window.requestAnimationFrame(loop);
 
             // 라벨 영역 준비
@@ -158,11 +207,12 @@
             resultTitleEl = document.getElementById("result-title");
             resultAgeEl = document.getElementById("result-age");
             resultAdviceEl = document.getElementById("result-advice");
+            resultExpireEl = document.getElementById("result-expire");
             
             // 측정 버튼을 다시 활성화
             if (measureButton) {
                 measureButton.disabled = false;
-                measureButton.textContent = "나이 추정 시작";
+                measureButton.textContent = "조언 받기";
             }
         } catch (err) {
             console.error("초기화 오류:", err);
@@ -171,12 +221,12 @@
             // 버튼 복구
             if (measureButton) {
                 measureButton.disabled = false;
-                measureButton.textContent = "나이 추정 시작";
+                measureButton.textContent = "조언 받기";
             }
         }
     }
 
-    // "나이 추정 시작" / "다시 추정" 버튼 클릭 핸들러
+    // "조언 받기" / "다시 조언 받기" 버튼 클릭 핸들러
     function onMeasureButtonClick() {
         // 이미 측정 중이면 무시
         if (isMeasuring) return;
@@ -270,6 +320,7 @@
 
     // 측정 초기화 및 시작 공통 로직
     function startMeasure() {
+        clearAutoResetTimer();
         classScoreSums = new Array(maxPredictions).fill(0);
         isMeasuring = true;
         measurementDone = false;
@@ -299,6 +350,10 @@
             resultAdviceEl.style.display = "none";
             resultAdviceEl.textContent = "";
         }
+        if (resultExpireEl) {
+            resultExpireEl.style.display = "none";
+            resultExpireEl.textContent = "";
+        }
 
         // 측정 버튼 비활성화 및 상태 표시
         const measureButton = document.getElementById("measure-button");
@@ -318,12 +373,19 @@
             progressText.textContent = "측정이 완료되었습니다.";
         }
 
-        // 측정 버튼을 다시 활성화하고 "다시 추정"으로 변경
+        // 측정 버튼을 다시 활성화하고 "다시 조언 받기"으로 변경
         const measureButton = document.getElementById("measure-button");
         if (measureButton) {
             measureButton.disabled = false;
-            measureButton.textContent = "다시 추정";
+            measureButton.textContent = "다시 조언 받기";
         }
+
+        // 결과 자동 초기화 안내 및 타이머 설정
+        if (resultExpireEl) {
+            resultExpireEl.style.display = "block";
+            resultExpireEl.textContent = "15초 뒤 결과가 자동으로 초기화됩니다.";
+        }
+        scheduleAutoReset();
     }
 
     // 경과 시간에 따라 프로그래스 바/텍스트 업데이트
@@ -359,6 +421,64 @@
         // reflow를 강제로 발생시켜 애니메이션을 다시 트리거
         void buttonEl.offsetWidth;
         buttonEl.classList.add("burst-active");
+    }
+
+    // 결과를 15초 뒤 자동으로 초기화
+    function scheduleAutoReset() {
+        clearAutoResetTimer();
+        autoResetTimerId = setTimeout(() => {
+            resetResultsToInitial();
+        }, RESULT_AUTO_RESET_MS);
+    }
+
+    function clearAutoResetTimer() {
+        if (autoResetTimerId) {
+            clearTimeout(autoResetTimerId);
+            autoResetTimerId = null;
+        }
+    }
+
+    function resetResultsToInitial() {
+        measurementDone = false;
+        isMeasuring = false;
+        measureStartTime = 0;
+        classScoreSums = new Array(maxPredictions || 0).fill(0);
+
+        // 결과 박스 숨김
+        if (resultTitleEl) {
+            resultTitleEl.style.display = "none";
+            resultTitleEl.textContent = "";
+        }
+        if (resultAgeEl) {
+            resultAgeEl.style.display = "none";
+            resultAgeEl.textContent = "";
+        }
+        if (resultAdviceEl) {
+            resultAdviceEl.style.display = "none";
+            resultAdviceEl.textContent = "";
+        }
+        if (resultExpireEl) {
+            resultExpireEl.style.display = "none";
+            resultExpireEl.textContent = "";
+        }
+
+        // 프로그래스 영역 초기화
+        const progressWrapper = document.getElementById("progress-wrapper");
+        const progressText = document.getElementById("progress-text");
+        const progressBar = document.getElementById("progress-bar");
+        if (progressWrapper && progressText && progressBar) {
+            progressWrapper.style.display = "none";
+            progressText.style.display = "none";
+            progressText.textContent = "";
+            progressBar.style.width = "0%";
+        }
+
+        // 버튼 텍스트 초기화
+        const measureButton = document.getElementById("measure-button");
+        if (measureButton) {
+            measureButton.disabled = false;
+            measureButton.textContent = "조언 받기";
+        }
     }
     </script>
 
