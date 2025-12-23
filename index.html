@@ -39,6 +39,7 @@
                 <div class="button-row">
                     <button type="button" id="measure-button" onclick="onMeasureButtonClick()">조언 받기</button>
                 </div>
+                <div id="measure-hint" style="margin-top:6px;font-size:12px;color:#777;text-align:center;">SPACE BAR 또는 마우스로 버튼 클릭</div>
             </div>
         </div>
     </div>
@@ -58,6 +59,16 @@
     document.addEventListener("DOMContentLoaded", () => {
         document.body.classList.add(DEFAULT_THEME);
         init(); // 페이지에 들어오자마자 웹캠을 켜고 모델을 준비
+        // 스페이스바로 측정 시작
+        document.addEventListener("keydown", (e) => {
+            if (e.code === "Space" || e.key === " ") {
+                e.preventDefault(); // 페이지 스크롤 방지
+                const measureButton = document.getElementById("measure-button");
+                if (measureButton && !measureButton.disabled) {
+                    onMeasureButtonClick();
+                }
+            }
+        });
     });
 
     let model, webcam, labelContainer, maxPredictions;
